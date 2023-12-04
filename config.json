@@ -1,5 +1,5 @@
 {
 "max_reviews_per_branch" : 20,
-"max_branch" : 5,
+"max_branches" : 5,
 "search_phrase" : "McDonald's in Hamburg"
 }

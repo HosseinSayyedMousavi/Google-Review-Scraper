@@ -9,12 +9,6 @@ from openpyxl.styles.borders import Border, Side
 from openpyxl.styles import Font
 import openpyxl
 import json
-with open("config.json","r") as f:
-    config=json.loads(f.read())
-max_reviews_per_branch = config["max_reviews_per_branch"]
-max_branch = config["max_branch"]
-search_phrase = config["search_phrase"]
-
 
 def element_wait(driver , method , element , timeout=10): 
     return WebDriverWait(driver, timeout).until(EC.visibility_of_element_located((method,element)))
@@ -36,7 +30,7 @@ def which_is_first(browser , method1 , method2 ,  input1 , input2):
             return 1
 
 
-def extract_single_branch(browser):
+def extract_single_branch(browser,max_reviews_per_branch):
         
     Reviews_tab = element_wait(browser,"xpath","//div[@class='Gpq6kf fontTitleSmall'][contains(text(),'Reviews')]")
     Reviews_tab.click()
@@ -78,9 +72,9 @@ def extract_single_branch(browser):
     return review_list
 
 
-def extract_multi_branch(browser):
+def extract_multi_branch(browser , max_branches):
     branches = browser.find_elements("css selector","a.hfpxzc")
-    while len(branches) < max_branch and not browser.find_elements("xpath","//span[contains(text(),'reached the end')]"):
+    while len(branches) < max_branches and not browser.find_elements("xpath","//span[contains(text(),'reached the end')]"):
 
         branches = browser.find_elements("css selector","a.hfpxzc")
         branches[0].click()
@@ -92,85 +86,94 @@ def extract_multi_branch(browser):
         action.perform()
         time.sleep(1)
 
-    branches = branches[0:max_branch]
+    branches = branches[0:max_branches]
     branch_list = []
     for branch in branches:
         browser.execute_script("arguments[0].scrollIntoView();", branch)
+        time.sleep(0.5)
         branch.click()
         time.sleep(0.5)
         branch_dict ={}
         branch_dict["address"]=""
         try:branch_dict["address"] = element_wait(browser,'css selector','button[data-item-id="address"]').text
         except:pass
-        branch_dict["reviews"] = extract_single_branch(browser)
+        branch_dict["reviews"] = extract_single_branch(browser,max_reviews_per_branch)
         close_btn = element_wait(browser,'css selector',"button[data-disable-idom='true'][aria-label='Close']")
         close_btn.click()
         branch_list.append(branch_dict)
     return branch_list
     
 
-thin_border = Border(left=Side(style='thin'),right=Side(style='thin'),top=Side(style='thin'),bottom=Side(style='thin'))
-thick_border = Border(left=Side(style='thick'),right=Side(style='thick'),top=Side(style='thick'),bottom=Side(style='thick'))
-
-
 def bordering_range(sheet,From, To, border):
     for i in range(From[0], To[0] + 1):
         for j in range(From[1], To[1] + 1):
             sheet.cell(row=i, column=j).border = border
 
-def merge_and_border(sheet,From, To):
+
+def merge_and_border(sheet,From, To , border):
     for i in range(From[0], To[0] + 1):
         for j in range(From[1], To[1] + 1):
-            sheet.cell(row=i, column=j).border = thin_border
+            sheet.cell(row=i, column=j).border = border
     sheet.merge_cells(start_row=From[0], start_column=From[1], end_row=To[0], end_column=To[1])
 
 
-browser = webdriver.Firefox()
-browser.maximize_window()
-browser.get("https://google.com/maps")
-search_box = browser.find_element("id","searchboxinput")
-search_box.send_keys(search_phrase)
-search_box.send_keys(Keys.ENTER)
-element_wait(browser,'css selector','div[role="main"]')
 
-page_type = which_is_first(browser,"css selector","css selector",':not([aria-label])[role="main"]','[aria-label][role="main"]')
+def scrape_review(max_reviews_per_branch,max_branches,search_phrase):
+    browser = webdriver.Firefox()
+    browser.maximize_window()
+    browser.get("https://google.com/maps")
+    search_box = browser.find_element("id","searchboxinput")
+    search_box.send_keys(search_phrase)
+    search_box.send_keys(Keys.ENTER)
+    element_wait(browser,'css selector','div[role="main"]')
 
-if page_type == 1 : # multi branch
-    branch_list = extract_multi_branch(browser)
+    page_type = which_is_first(browser,"css selector","css selector",':not([aria-label])[role="main"]','[aria-label][role="main"]')
 
-elif page_type == 2 : #single branch
-    branch_dict ={}
-    branch_dict["address"] = element_wait(browser,'css selector','button[data-item-id="address"]').text
-    branch_dict["reviews"]  = extract_single_branch(browser)
-    branch_list = [branch_dict]
+    if page_type == 1 : # multi branch
+        branch_list = extract_multi_branch(browser , max_branches)
 
-browser.close()
-workbook = openpyxl.Workbook()
-sheet = workbook.active
+    elif page_type == 2 : #single branch
+        branch_dict ={}
+        branch_dict["address"] = element_wait(browser,'css selector','button[data-item-id="address"]').text
+        branch_dict["reviews"]  = extract_single_branch(browser,max_reviews_per_branch)
+        branch_list = [branch_dict]
 
-coll_i=0
-for branch in branch_list:
+    browser.close()
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    thin_border = Border(left=Side(style='thin'),right=Side(style='thin'),top=Side(style='thin'),bottom=Side(style='thin'))
+    thick_border = Border(left=Side(style='thick'),right=Side(style='thick'),top=Side(style='thick'),bottom=Side(style='thick'))
 
-    
-    sheet.cell(row=1, column=5*coll_i+1 ).value=branch["address"]
-    merge_and_border(sheet,(1,coll_i*5+1),(1,coll_i*5+5))
-    sheet.cell(row=2, column=5*coll_i+1 ).value="index"
-    sheet.cell(row=2, column=5*coll_i+2 ).value="name"
-    sheet.cell(row=2, column=5*coll_i+3 ).value="text"
-    sheet.cell(row=2, column=5*coll_i+4 ).value="rating"
-    sheet.cell(row=2, column=5*coll_i+5 ).value="images"
+    coll_i=0
+    for branch in branch_list:
 
-    row_i = 0
-    for review in branch["reviews"]:
-        sheet.cell(row=row_i+3, column=5*coll_i+row_i+1 ).value= row_i +1
-        sheet.cell(row=row_i+3, column=5*coll_i+row_i+2 ).value= review["name"]
-        sheet.cell(row=row_i+3, column=5*coll_i+row_i+3 ).value= review["text"]
-        sheet.cell(row=row_i+3, column=5*coll_i+row_i+4 ).value= review["rating"]
-        sheet.cell(row=row_i+3, column=5*coll_i+row_i+5 ).value= review["images"]
-        row_i +=1
-    bordering_range(sheet,(2,coll_i+1),(row_i+3,coll_i+5),thin_border)
-    coll_i += 1
+        sheet.cell(row=1, column=5*coll_i+1 ).value=branch["address"]
+        merge_and_border(sheet,(1,coll_i*5+1),(1,coll_i*5+5),thin_border)
+        sheet.cell(row=2, column=5*coll_i+1 ).value="index"
+        sheet.cell(row=2, column=5*coll_i+2 ).value="name"
+        sheet.cell(row=2, column=5*coll_i+3 ).value="text"
+        sheet.cell(row=2, column=5*coll_i+4 ).value="rating"
+        sheet.cell(row=2, column=5*coll_i+5 ).value="images"
 
-workbook.save("./"+search_phrase+".xlsx")
+        row_i = 0
+        for review in branch["reviews"]:
+            sheet.cell(row=row_i+3, column=5*coll_i+1 ).value= row_i +1
+            sheet.cell(row=row_i+3, column=5*coll_i+2 ).value= review["name"]
+            sheet.cell(row=row_i+3, column=5*coll_i+3 ).value= review["text"]
+            sheet.cell(row=row_i+3, column=5*coll_i+4 ).value= review["rating"]
+            sheet.cell(row=row_i+3, column=5*coll_i+5 ).value= review["images"]
+            row_i +=1
+        bordering_range(sheet,(2,5*coll_i+1),(row_i+2,5*coll_i+5),thin_border)
+        coll_i += 1
+
+    workbook.save("./"+search_phrase+".xlsx")
 
 
+if __name__ == "__main__":
+    with open("config.json","r") as f:
+        config=json.loads(f.read())
+    max_reviews_per_branch = config["max_reviews_per_branch"]
+    max_branches = config["max_branches"]
+    search_phrase = config["search_phrase"]
+
+    scrape_review(max_reviews_per_branch,max_branches,search_phrase)
